@@ -72,7 +72,8 @@ def simulate_forward_curves(
         T_horizon,
         n_steps,
         n_paths,
-        seed= None
+        seed= None,
+        shocks = None
 ):
     initial_curve = np.asarray(initial_curve, dtype = float)
     maturities = np.asarray(maturities, dtype = float)
@@ -87,6 +88,14 @@ def simulate_forward_curves(
     n_factors = vol_structure.n_factors
 
     rng = np.random.default_rng(seed)
+
+    if shocks is None:
+        shocks = rng.standard_normal((n_paths, n_steps, n_factors))
+    else:
+        shocks = np.asarray(shocks, dtype=float)
+        expected = (n_paths, n_steps, n_factors)
+        if shocks.shape != expected:
+            raise ValueError(f"shocks must have shape {expected}, got {shocks.shape}")
 
     curves = np.full((n_paths, n_steps+1, n_mat) , np.nan)
     curves[:,0,:]= initial_curve
@@ -107,7 +116,7 @@ def simulate_forward_curves(
         sig = vol_structure(t, T_act)
 
 
-        Z = rng.standard_normal((n_paths, n_factors))
+        Z = shocks[:,k,:]
 
         diffusion = sqrt_dt * np.einsum("pi,ia -> pa", Z,sig)
 
