@@ -1,41 +1,6 @@
-"""
-martingale_check.py
-
-Numerical verification that discounted bond prices are martingales under
-the risk-neutral measure -- the defining property of the equivalent
-martingale measure constructed in Section 4 of Heath-Jarrow-Morton (1992).
-
-The test:
-
-    Z(t,T) = P(t,T) / B(t),     B(t) = exp(integral_0^t r(y) dy)
-
-    E~[Z(t,T)] = Z(0,T) = P(0,T)
-
-This directly probes the no-arbitrage drift restriction (equation 18).
-If the drift were absent, mis-signed, or wrongly scaled, Z would acquire
-a drift and its sample mean would diverge systematically from P(0,T).
-
-Three sections, each answering a different question:
-
-  1. Is there a detectable bias?  (antithetic variates for precision)
-  2. Is the residual bias attributable to Euler discretization?
-     (path-wise comparison against a fine-step reference)
-  3. Could this test detect a broken drift at all?
-     (paired drift-on vs drift-off control)
-
-Section 3 matters because a small bias in section 1 is only meaningful
-if the test has the power to detect a large one. Establishing that
-sensitivity is what turns "no bias observed" into "no bias present".
-
-All three rely on PATH-WISE PAIRING: running two simulations over the
-same Brownian shocks and differencing per path, so the diffusion cancels
-within each path rather than merely averaging out across paths. This is
-the difference between standard errors of ~1e-4 and ~1e-7.
-"""
-
 import numpy as np
 
-from src.curve import bond_price_from_forward_curve
+from src.curve import bond_price_from_forward_curve, bond_prices_vectorised
 from src.hullwhite import make_flat_curve
 from src.simulate import ExponentialVol, simulate_forward_curves
 
@@ -96,12 +61,7 @@ def discounted_bond_prices(curves, times, maturities, short_rates, T, k):
         raise ValueError(f"Maturity {T} must exceed evaluation time {t}")
 
     B = money_market_account(short_rates, times)[:, k]
-
-    P = np.zeros(n_paths)
-    for p in range(n_paths):
-        row = curves[p, k, :]
-        live = ~np.isnan(row)
-        P[p] = bond_price_from_forward_curve(row[live], maturities[live], t, T)
+    P = bond_prices_vectorised(curves[:, k, :], maturities, t, T)
 
     return P / B
 
@@ -200,6 +160,7 @@ def _Z_from_shocks(
             n_steps=n_steps,
             n_paths=n_paths,
             shocks=shocks,
+            store_history=False,
         )
     finally:
         sim.hjm_drift = original
@@ -258,6 +219,7 @@ def martingale_test_antithetic(
         n_steps=n_steps,
         n_paths=n_paths,
         shocks=shocks,
+        store_history=False,
     )
     c_minus, _, r_minus = simulate_forward_curves(
         initial_curve=initial_curve,
@@ -267,6 +229,7 @@ def martingale_test_antithetic(
         n_steps=n_steps,
         n_paths=n_paths,
         shocks=-shocks,
+        store_history=False,
     )
 
     results = {}

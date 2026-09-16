@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.curve import bond_price_from_forward_curve
+from src.curve import bond_price_from_forward_curve, bond_prices_vectorised
 from src.hullwhite import bond_price, make_flat_curve
 from src.simulate import ExponentialVol, simulate_forward_curves
 
@@ -31,6 +31,7 @@ def run_validation(
         n_steps=n_steps,
         n_paths=n_paths,
         seed=seed,
+        store_history=False,
     )
 
     k =-1
@@ -42,17 +43,12 @@ def run_validation(
         if T<=t:
             raise ValueError(f"Comparison maturity {T} must exceed horizon {t}")
 
-        sim_prices = np.zeros(n_paths)
-        hw_prices = np.zeros(n_paths)
+                # (A) integrate the simulated curve -- all paths at once
+        sim_prices = bond_prices_vectorised(curves[:, k, :], maturities, t, T)
 
-        for p in range(n_paths):
-            row = curves[p,k,:]
-            live = ~np.isnan(row)
-
-            sim_prices[p] = bond_price_from_forward_curve(
-                row[live], maturities[live], t, T
-            )
-            hw_prices[p] = bond_price(t, T, short_rates[p, k], P0, f_flat, sigma, a)
+        # (B) Hull-White closed form from the short rate alone. bond_price
+        # already accepts an array for r_t, so this vectorises directly.
+        hw_prices = bond_price(t, T, short_rates[:, k], P0, f_flat, sigma, a)
 
         abs_err = np.abs(sim_prices - hw_prices)
         rel_err = abs_err/hw_prices

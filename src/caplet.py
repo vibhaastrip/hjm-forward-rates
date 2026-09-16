@@ -1,37 +1,8 @@
-"""
-caplet.py
 
-Caplet pricing by Monte Carlo under the HJM framework, with a
-Hull-White closed-form validation and a two-factor extension where no
-closed form exists.
-
-A caplet is a one-period interest rate option: the rate is fixed at the
-reset date T1, and the payoff
-
-    tau * max(L(T1,T2) - K, 0)
-
-is paid at T2, where tau = T2 - T1 and L is the simply-compounded
-forward rate over that period.
-
-Two modelling points worth stating up front:
-
-  1. We simulate only to T1, not T2. The payoff is known at T1, and
-     P(T1,T2) is available exactly from the simulated curve, so
-     discounting one period back by multiplying by P(T1,T2) is exact.
-     Simulating onward to T2 would add Euler steps and money-market
-     integration error for no benefit.
-
-  2. Under ExponentialVol the caplet has a closed form (it is a put on
-     a zero-coupon bond). Under TwoFactorVol it does not -- two factors
-     with different maturity profiles leave the forward bond price
-     outside the one-dimensional lognormal family. That contrast is the
-     point of this module: validate against the tractable case, then
-     price the intractable one.
-"""
 
 import numpy as np
 
-from src.curve import bond_price_from_forward_curve
+from src.curve import bond_price_from_forward_curve, bond_prices_vectorised
 from src.hullwhite import bond_option_price, make_flat_curve
 from src.martingale_check import money_market_account
 from src.simulate import ExponentialVol, TwoFactorVol, simulate_forward_curves
@@ -153,15 +124,12 @@ def caplet_monte_carlo(
             n_steps=n_steps,
             n_paths=n_paths,
             shocks=s,
+            store_history=False,
         )
 
         B_T1 = money_market_account(short_rates, times)[:, -1]
 
-        P = np.zeros(n_paths)
-        for p in range(n_paths):
-            row = curves[p, -1, :]
-            live = ~np.isnan(row)
-            P[p] = bond_price_from_forward_curve(row[live], maturities[live], T1, T2)
+        P = bond_prices_vectorised(curves[:, -1, :], maturities, T1, T2)
 
         discounted.append(caplet_payoff(P, K, tau) / B_T1)
 

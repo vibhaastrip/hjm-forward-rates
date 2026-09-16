@@ -73,7 +73,8 @@ def simulate_forward_curves(
         n_steps,
         n_paths,
         seed= None,
-        shocks = None
+        shocks = None,
+        store_history = True,
 ):
     initial_curve = np.asarray(initial_curve, dtype = float)
     maturities = np.asarray(maturities, dtype = float)
@@ -97,41 +98,72 @@ def simulate_forward_curves(
         if shocks.shape != expected:
             raise ValueError(f"shocks must have shape {expected}, got {shocks.shape}")
 
-    curves = np.full((n_paths, n_steps+1, n_mat) , np.nan)
-    curves[:,0,:]= initial_curve
-
     short_rates = np.full((n_paths, n_steps+1),np.nan)
     short_rates[:,0] = np.interp(0.0, maturities, initial_curve)
+    
+    if store_history:
+        curves = np.full((n_paths, n_steps + 1, n_mat), np.nan)
+        curves[:, 0, :] = initial_curve
+    else:
+        curr = np.full((n_paths, n_mat), np.nan)
+        curr[:] = initial_curve
+        nxt = np.empty_like(curr)
+
+    
 
     for k in range(n_steps):
         t = times[k]
-        t_next = times[k+1]
+        t_next = times[k + 1]
 
-        active = maturities >= t_next
-        if not np.any(active):
+        # Maturities expire in order, so the live region is always a
+        # contiguous suffix of the grid. Using a slice rather than a
+        # boolean mask matters: fancy indexing forces NumPy to
+        # materialise a copy of the selected block on every read and
+        # scatter it back on every write, which dominates runtime at
+        # realistic path counts. A slice is a view.
+        first = int(np.searchsorted(maturities, t_next, side="left"))
+        if first >= maturities.size:
             break
-        T_act = maturities[active]
+        T_act = maturities[first:]
 
         alpha = hjm_drift(vol_structure, t, T_act)
         sig = vol_structure(t, T_act)
 
+        Z = shocks[:, k, :]
+        diffusion = sqrt_dt * np.einsum("pi,ia->pa", Z, sig)
 
-        Z = shocks[:,k,:]
+        if store_history:
+            dst = curves[:, k + 1, first:]
+            np.add(curves[:, k, first:], alpha * dt, out=dst)
+            dst += diffusion
+            block = dst
+        else:
+            nxt[:, :first] = np.nan
+            np.add(curr[:, first:], alpha * dt, out=nxt[:, first:])
+            nxt[:, first:] += diffusion
+            block = nxt[:, first:]
 
-        diffusion = sqrt_dt * np.einsum("pi,ia -> pa", Z,sig)
+        # r(t) = f(t,t), vectorised across paths as before.
+        j = int(np.searchsorted(T_act, t_next, side="left"))
+        if j == 0:
+            short_rates[:, k + 1] = block[:, 0]
+        else:
+            j = min(j, T_act.size - 1)
+            lo, hi = j - 1, j
+            span = T_act[hi] - T_act[lo]
+            w = 0.0 if span == 0 else (t_next - T_act[lo]) / span
+            w = min(max(w, 0.0), 1.0)
+            short_rates[:, k + 1] = (1.0 - w) * block[:, lo] + w * block[:, hi]
 
-        curves[:, k+1, active] =(
-            curves[:, k , active] + alpha* dt + diffusion
-        )
+        if not store_history:
+            curr, nxt = nxt, curr
 
-        for p in range(n_paths):
-            row = curves[p, k+1, :]
-            live = ~np.isnan(row)
-            short_rates[p,k+1] = np.interp(
-                t_next, maturities[live], row[live]
-            )
+    if store_history:
+        return curves, times, short_rates
 
-    return curves, times, short_rates
+    # Length-1 time axis so callers indexing [:, -1, :] work unchanged.
+    return curr[:, np.newaxis, :], times, short_rates
+
 
 if __name__== "__main__":
     maturities = np.linspace(0.0, 10.0, 101)
