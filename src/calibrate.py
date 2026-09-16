@@ -152,6 +152,90 @@ def run_comparison(
     }
 
 
+# ----------------------------------------------------------------------
+# Two-parameter calibration: matching BOTH marginal variances
+# ----------------------------------------------------------------------
+
+
+def _variance_ratio_exponential(a, T1, delta_A, delta_B):
+    """
+    V_A / V_B for the exponential structure, as a function of `a` alone.
+
+    Sigma cancels: V is proportional to sigma^2 for both accruals, so
+    the ratio depends only on the mean-reversion speed. This is what
+    makes the two-parameter calibration a one-dimensional root-find
+    followed by a closed-form rescaling, rather than a 2D solve.
+    """
+    num = np.exp(-a * T1) - np.exp(-a * (T1 + delta_A))
+    den = np.exp(-a * T1) - np.exp(-a * (T1 + delta_B))
+    return (num / den) ** 2
+
+
+def calibrate_exponential_two_variances(V_A, V_B, T1, delta_A, delta_B,
+                                        a_lo=1e-4, a_hi=5.0):
+    """
+    Find (sigma, a) matching BOTH marginal variances of the integrated
+    forward rate over [T1, T1+delta_A] and [T1, T1+delta_B].
+
+    This is the calibration the spread-option comparison needs. Matching
+    a single summary variance would leave the marginals differing, so
+    any price difference would confound "the model cannot decorrelate"
+    with "the model has the wrong marginal volatilities". Matching both
+    marginals makes the remaining difference attributable to CORRELATION
+    alone.
+
+    Method: sigma cancels from the ratio V_A/V_B, so solve the ratio for
+    `a` by bisection, then rescale sigma in closed form.
+
+    Feasibility is not guaranteed. As a -> 0 the ratio tends to
+    (delta_A/delta_B)^2; as a -> infinity it tends to 1, since both
+    accruals then see only the very short end of the curve. A target
+    ratio outside that range cannot be matched by ANY one-factor
+    exponential structure -- which is itself informative about what a
+    second factor buys.
+
+    Returns
+    -------
+    dict with sigma, a, the achieved variances, and a feasibility flag.
+    """
+    from scipy.optimize import brentq
+
+    target = V_A / V_B
+
+    r_lo = _variance_ratio_exponential(a_lo, T1, delta_A, delta_B)
+    r_hi = _variance_ratio_exponential(a_hi, T1, delta_A, delta_B)
+
+    lo, hi = min(r_lo, r_hi), max(r_lo, r_hi)
+    if not (lo <= target <= hi):
+        return {
+            "feasible": False,
+            "target_ratio": float(target),
+            "achievable_range": (float(lo), float(hi)),
+            "sigma": None,
+            "a": None,
+        }
+
+    a_star = brentq(
+        lambda a: _variance_ratio_exponential(a, T1, delta_A, delta_B) - target,
+        a_lo, a_hi, xtol=1e-12,
+    )
+
+    # With `a` fixed, V is exactly quadratic in sigma, so rescale.
+    V_unit = integrated_forward_variance_exponential(1.0, a_star, T1, T1 + delta_A)
+    sigma_star = float(np.sqrt(V_A / V_unit))
+
+    return {
+        "feasible": True,
+        "sigma": sigma_star,
+        "a": float(a_star),
+        "V_A_achieved": integrated_forward_variance_exponential(
+            sigma_star, a_star, T1, T1 + delta_A),
+        "V_B_achieved": integrated_forward_variance_exponential(
+            sigma_star, a_star, T1, T1 + delta_B),
+        "V_A_target": float(V_A),
+        "V_B_target": float(V_B),
+    }
+
 if __name__ == "__main__":
     T1, T2 = 1.0, 1.5
     a = 0.1
@@ -210,3 +294,31 @@ if __name__ == "__main__":
     for K, p2, p1, cf in res["rows"]:
         print(f"{K:8.4f}  {p1['price']:12.8f}  {cf:12.8f}  "
               f"{p1['price'] - cf:11.2e}  {p1['std_err']:10.2e}")
+
+
+    print("\n" + "=" * 76)
+    print("Two-parameter calibration: can one factor match both marginals?")
+    print("=" * 76)
+    print("\nFor the spread option we need the one-factor model to reproduce")
+    print("BOTH forward rates' variances, so any price difference is")
+    print("attributable to correlation rather than to marginal volatility.\n")
+
+    T1 = 1.0
+    print(f"{'short':>7}  {'long':>6}  {'target ratio':>13}  "
+          f"{'achievable':>22}  {'sigma':>9}  {'a':>7}")
+    print("-" * 76)
+
+    for dA, dB in [(0.5, 2.0), (0.5, 5.0), (0.25, 5.0), (0.5, 9.0)]:
+        VA = integrated_forward_variance_two_factor(
+            sigma_1, sigma_2, lam, T1, T1 + dA)
+        VB = integrated_forward_variance_two_factor(
+            sigma_1, sigma_2, lam, T1, T1 + dB)
+        res = calibrate_exponential_two_variances(VA, VB, T1, dA, dB)
+
+        if res["feasible"]:
+            print(f"{dA:7.2f}  {dB:6.2f}  {VA/VB:13.6f}  "
+                  f"{'yes':>22}  {res['sigma']:9.6f}  {res['a']:7.4f}")
+        else:
+            lo, hi = res["achievable_range"]
+            print(f"{dA:7.2f}  {dB:6.2f}  {VA/VB:13.6f}  "
+                  f"{f'no ({lo:.4f}, {hi:.4f})':>22}  {'-':>9}  {'-':>7}")
