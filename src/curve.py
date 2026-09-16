@@ -60,3 +60,39 @@ if __name__ == "__main__":
     r = spot_rate(f, maturities, t=0.5)
     print("\nSpot rate at t=0.5:", round(r, 5))
     print("f at shortest maturity (0.5):", round(f[0], 5))
+
+def bond_prices_vectorised(curves_slice, maturities, t,T):
+    curves_slice = np.atleast_2d(curves_slice)
+    n_paths = curves_slice.shape[0]
+
+    if T<t:
+        raise ValueError(f"T ({T}) must be >= t ({t})")
+    if T==t:
+        return np.ones(n_paths)
+
+    live = ~np.isnan(curves_slice[0])
+    mats = maturities[live]
+    rates = curves_slice[:,live]
+
+    if mats.size <2:
+        raise ValueError("Need at least 2 maturities to integrate")
+
+    interior = mats[(mats>t) & (mats<T)]
+    grid = np.concatenate(([t],interior,[T]))
+
+    idx = np.searchsorted(mats, grid, side="left")
+    idx = np.clip(idx,1,mats.size -1)
+    lo, hi = idx-1, idx
+
+    span = mats[hi]-mats[lo]
+    w = np.where(span > 0, (grid-mats[lo]) / np.where(span>0, span, 1.0), 0.0)
+    w = np.clip(w, 0.0, 1.0)
+    f_grid = (1.0 - w) * rates[:, lo] + w* rates[:,hi]
+
+
+    dv = np.diff(grid)
+    integral = np.sum(0.5 * (f_grid[:,1:] + f_grid[:, :-1]) * dv , axis =1)
+    return np.exp(-integral)
+
+    return np.exp(-integral)
+
