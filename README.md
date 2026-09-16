@@ -6,8 +6,8 @@ Valuation,"* Econometrica 60(1), 77–105.
 
 The no-arbitrage drift restriction is derived from first principles, implemented
 as a Monte Carlo simulation of the full forward rate curve, validated against the
-Hull-White closed-form special case, and extended to price a caplet under a
-two-factor volatility structure where no closed form exists.
+Hull-White closed-form special case, and then used to establish where a
+multi-factor volatility structure does and does not change prices.
 
 ---
 
@@ -33,6 +33,30 @@ paper identifies in equilibrium models such as Cox-Ingersoll-Ross (Section 8).
 *The volatility structure is the only free choice. The exponential form on the
 left is the one that reduces HJM to Hull-White; the two-factor form on the right
 separates a level factor from a slope factor that decays with maturity.*
+
+---
+
+## Headline finding
+
+A second volatility factor is worth nothing on a caplet and a great deal on a
+spread option, and the difference is structural rather than a matter of
+calibration.
+
+| instrument | depends on | two-factor vs matched one-factor |
+|---|---|---|
+| caplet | one forward rate's marginal distribution | no detectable difference (\|t\| < 1.25) |
+| spread option | the joint distribution of two forward rates | 38–107% higher, t = 41 to 87 |
+
+The caplet result is a **null**, and deliberately so: the raw comparison showed a
+two-factor premium of up to 10.7%, which vanished entirely once the structures
+were matched on total variance. The apparent effect was a confound.
+
+The spread option is where the second factor earns its place. A one-factor model
+forces both forward rates to be driven by the same Brownian motion, pinning their
+correlation above 0.998 whatever the tenors. At the furthest strike tested, the
+one-factor model assigns the option **zero value** — not one path in 20,000
+finishes in the money — while the two-factor model gives 12.5%. That is not a
+pricing disagreement; the models differ on what is possible.
 
 ---
 
@@ -64,7 +88,7 @@ Euler-Maruyama is weak order O(dt), so halving the step size should halve the
 error. The measured points sit on the reference slope, with ratios of 2.01 and
 1.99 at the coarse end. The slight flattening at fine step sizes is the Euler
 error approaching the fixed trapezoidal error on the maturity axis, which
-refining the time step does not improve — see the error attribution below.
+refining the time step does not improve — see the attribution below.
 
 This diagnostic caught two real bugs during development (an uninitialised output
 array and a misplaced `return`). Both produced plausible-looking prices but an
@@ -75,10 +99,9 @@ looks like as opposed to discretisation.
 
 The per-path discrepancy between the two price routes is not noise: it has a mean
 of 2.13e-07 against a standard deviation of 2.03e-08, and correlates **-0.999**
-with the short rate. Two convergence studies along orthogonal axes separate it
-into two components.
+with the short rate. Two convergence studies along orthogonal axes separate it.
 
-Refining the **maturity grid**, holding the time step fixed:
+Refining the **maturity grid**, time step fixed:
 
 | n_maturities | h | mean error | sd | mean ratio | sd ratio |
 |-------------:|------:|-----------:|---------:|-----------:|---------:|
@@ -88,7 +111,7 @@ Refining the **maturity grid**, holding the time step fixed:
 | 801 | 0.0125 | 2.106e-07 | 9.942e-09 | 1.01 | 2.04 |
 | 1601 | 0.0063 | 2.100e-07 | 7.352e-09 | 1.00 | 1.35 |
 
-Refining the **time step**, holding the maturity grid fixed:
+Refining the **time step**, maturity grid fixed:
 
 | n_steps | dt | mean error | sd | mean ratio |
 |--------:|-------:|-----------:|---------:|-----------:|
@@ -98,18 +121,18 @@ Refining the **time step**, holding the maturity grid fixed:
 | 400 | 0.0025 | 1.083e-07 | 1.710e-08 | 1.97 |
 | 800 | 0.0013 | 5.539e-08 | 1.535e-08 | 1.96 |
 
-The two tables give a clean decomposition:
+A clean decomposition:
 
-- **The mean offset is Euler time-stepping bias.** O(dt): ratios 1.99, and a
+- **The mean offset is Euler time-stepping bias.** O(dt): ratios 1.99, while a
   16-fold refinement of the maturity grid moves it by 2%.
 - **The spread is trapezoidal integration on the maturity axis.** O(h^2): ratios
-  3.68 and 3.04 at the coarse end, degrading as it drops below the
-  Euler-driven floor near 1.5e-08 — visible in the second table, where the sd
-  barely moves however fine the time step gets.
+  3.68 and 3.04 at the coarse end, degrading as it drops below the Euler-driven
+  floor near 1.5e-08 — visible in the second table, where the sd barely moves
+  however fine the time step gets.
 
-The first hypothesis tested here was that the maturity grid caused the whole
+The first hypothesis tested was that the maturity grid caused the whole
 discrepancy. It did not: the mean was insensitive to it. Only running both axes
-separated the two components.
+separated the components.
 
 ### Martingale verification
 
@@ -145,7 +168,7 @@ model, not an insensitive test. The top-right panel above shows this directly:
 the paired difference sits entirely away from zero, while the residual bias
 (bottom left) straddles it at every maturity.
 
-### Caplet pricing
+### Caplet pricing, and a confound
 
 **Validation.** Under Hull-White a caplet has a closed form, via the identity that
 a caplet equals `(1 + tau*K)` puts on a zero-coupon bond struck at
@@ -162,11 +185,11 @@ a caplet equals `(1 + tau*K)` puts on a zero-coupon bond struck at
 Every difference is within one standard error, with alternating signs — noise,
 not bias.
 
-**Extension.** Under a two-factor structure the forward bond price leaves the
-one-dimensional lognormal family and the put-on-a-bond identity yields no closed
-form. Monte Carlo under the general framework still prices it, and the raw
-comparison shows two-factor prices above Hull-White at every strike, by up to
-10.7% at the highest.
+**The two-factor comparison, uncontrolled.** Under a two-factor structure the
+forward bond price leaves the one-dimensional lognormal family and the
+put-on-a-bond identity yields no closed form. Monte Carlo prices it anyway, and
+the raw comparison shows two-factor prices above Hull-White at every strike, by up
+to 10.7% at the highest.
 
 **That difference is a confound.** The two parameter sets were never matched, and
 the two-factor structure carries 7.6% more integrated forward variance:
@@ -199,10 +222,78 @@ pinned by the martingale property. Matching the variance therefore matches the
 whole distribution, and identical distributions price identical payoffs
 identically.
 
-This also locates where two factors *would* matter: instruments spanning multiple
-tenors, where the factors' differing maturity profiles decorrelate forward rates
-in a way a single factor cannot reproduce. A caplet on one accrual period sees
-essentially one point on the curve and is blind to that by construction.
+### Spread options: where the second factor matters
+
+A caplet depends on one forward rate, so its price is fixed by that rate's
+marginal distribution. A spread option depends on two, and therefore on
+
+```
+Var(L_A - L_B) = Var(L_A) + Var(L_B) - 2 Cov(L_A, L_B)
+```
+
+which the marginals do not pin down. Payoff at T1:
+
+```
+max( L(T1, T1+delta_A) - L(T1, T1+delta_B) - K, 0 )
+```
+
+a steepener, paying when the short rate exceeds the long rate by more than K.
+
+**The calibration is stricter here.** Matching a single summary variance would
+leave the marginals differing and confound "the model cannot decorrelate" with
+"the model has the wrong volatilities". Instead both free parameters of the
+exponential structure are used to match **both** marginal variances exactly. Sigma
+cancels from the variance ratio, so this reduces to a one-dimensional root-find
+for `a` followed by a closed-form rescaling. Any remaining difference is then
+attributable to correlation alone.
+
+For a 6-month against 5-year spread at T1 = 1.0, the calibrated one-factor model
+is `sigma = 0.009895, a = 0.0354` — note it must adopt much slower mean reversion
+than the 0.1 used elsewhere in order to fit both marginals at once.
+
+| | two-factor | one-factor (both marginals matched) |
+|---|---:|---:|
+| correlation between the two rates | 0.99038 | 0.99962 |
+| spread standard deviation | 1.791e-03 | 1.123e-03 |
+
+| strike | two-factor | one-factor | difference | combined s.e. | t | P(ITM) |
+|-------:|-----------:|-----------:|-----------:|--------------:|---:|-------:|
+| -0.00632 | 0.00206523 | 0.00197470 | 9.05e-05 | 2.22e-06 | 40.9 | 0.870 |
+| -0.00532 | 0.00128999 | 0.00111460 | 1.75e-04 | 2.69e-06 | 65.3 | 0.729 |
+| -0.00432 | 0.00068293 | 0.00042431 | 2.59e-04 | 3.51e-06 | 73.8 | 0.522 |
+| -0.00332 | 0.00028995 | 0.00004847 | 2.41e-04 | 2.77e-06 | 87.2 | 0.296 |
+| -0.00232 | 0.00009347 | 0.00000000 | 9.35e-05 | – | – | 0.125 |
+
+The final row is the clearest statement of the result. The one-factor price is
+**exactly zero**: not one path in 20,000 finishes in the money, because its
+spread distribution is too narrow to reach the strike. The two-factor model gives
+that outcome 12.5% probability. No t-statistic is quoted there — with zero
+variance on one side the comparison is degenerate — but the qualitative fact is
+stronger than any t would be.
+
+**Sensitivity to the tenor gap.** At-the-money spread options across widening
+accrual separations:
+
+| short | long | corr (2f) | corr (1f) | two-factor | one-factor | ratio | difference |
+|------:|-----:|----------:|----------:|-----------:|-----------:|------:|-----------:|
+| 0.50 | 1.00 | 0.99985 | 0.99999 | 0.00007328 | 0.00003540 | 2.07 | 3.79e-05 |
+| 0.50 | 2.00 | 0.99873 | 0.99995 | 0.00022118 | 0.00011526 | 1.92 | 1.06e-04 |
+| 0.50 | 5.00 | 0.99038 | 0.99962 | 0.00068293 | 0.00042431 | 1.61 | 2.59e-04 |
+| 0.50 | 9.00 | 0.97309 | 0.99875 | 0.00136737 | 0.00098975 | 1.38 | 3.78e-04 |
+| 0.25 | 9.00 | 0.97102 | 0.99867 | 0.00140293 | 0.00100623 | 1.39 | 3.97e-04 |
+
+The correlation columns are the mechanism, visible independently of any price:
+the one-factor correlation never leaves 0.9987–0.99999, because both rates are
+driven by the same Brownian motion. The two-factor correlation falls steadily to
+0.973 as the accruals separate and the slope factor hits the short rate harder
+than the long one.
+
+The **absolute** difference grows monotonically with the tenor gap, from 3.8e-05
+to 4.0e-04, tracking the decorrelation. The **ratio** moves the other way, from
+2.07 down to 1.38, because both prices rise sharply with the gap and the
+one-factor price rises faster in proportional terms. The absolute difference is
+the statistic that follows the mechanism; the ratio is the more striking headline
+but compresses for reasons unrelated to correlation.
 
 ---
 
@@ -217,7 +308,9 @@ src/
   validate.py            simulation vs Hull-White, with dt convergence
   martingale_check.py    E[Z(t,T)] = P(0,T), with paired drift control
   caplet.py              caplet by Monte Carlo; HW validation + 2-factor
-  calibrate.py           variance-matched one- vs two-factor comparison
+  calibrate.py           variance-matched comparisons: one summary
+                         variance, or both marginals via a 1D root-find
+  spread_option.py       steepener pricing and the tenor sensitivity study
   error_attribution.py   separating Euler O(dt) from trapezoidal O(h^2)
   plots.py               figures: structures, curves, convergence, caplets
   plots_distributions.py distribution-level diagnostics
@@ -236,7 +329,8 @@ python3 -m pytest tests/ -v          # test suite
 python3 -m src.validate              # Hull-White validation
 python3 -m src.martingale_check      # martingale verification
 python3 -m src.caplet                # caplet pricing
-python3 -m src.calibrate             # variance-matched comparison
+python3 -m src.calibrate             # variance-matched comparisons
+python3 -m src.spread_option         # spread option and tenor sensitivity
 python3 -m src.error_attribution     # error decomposition
 python3 -m src.plots                 # regenerate figures
 python3 -m src.plots_distributions
@@ -248,6 +342,14 @@ the project root.
 ---
 
 ## Notes on method
+
+**Controlled comparison.** The caplet and spread-option results rest on matching
+the structures before comparing them, and the two required different
+calibrations: one summary variance for the caplet, both marginals for the spread.
+The uncontrolled caplet comparison would have supported a claim — "two factors
+price 10.7% higher" — that the controlled version shows to be false. The same
+discipline is what makes the spread-option result credible in the other
+direction.
 
 **Paired-seed comparison.** Several quantities here are far smaller than the Monte
 Carlo noise at any practical sample size — the drift's effect on the forward curve
@@ -267,14 +369,14 @@ step count consumes a differently-shaped draw and the runs follow different path
 **Antithetic variates** reduce variance but not bias, and their effectiveness
 degrades for payoffs with a kink: 40–65x on the martingale test (a smooth
 functional), 1.5–5.3x on caplets, falling as the option moves out of the money.
-The `figures/caplet_distributions.png` panel showing payoff against the underlying
-rate makes the reason visible — below the strike the payoff is flat, so a path and
-its antithetic partner are no longer symmetric about the mean.
+`figures/caplet_distributions.png` shows the payoff against the underlying rate,
+making the reason visible — below the strike the payoff is flat, so a path and its
+antithetic partner are no longer symmetric about the mean.
 
 **Convergence rate as a diagnostic.** An error that shrinks at its predicted rate
 under refinement is discretisation; one that plateaus is a bug. This distinction
-caught both implementation errors mentioned above, and it is what separated the
-two error components in the attribution study.
+caught both implementation errors mentioned above, and it separated the two error
+components in the attribution study.
 
 **Parameter status.** Every parameter is labelled in the source as *paper
 convention*, *arbitrary but defensible*, or *needs justification*. The flat 4%
@@ -283,7 +385,7 @@ form and the validation is not contaminated by bootstrapping error. `sigma` and
 `a` are defensible in magnitude but uncalibrated; production use would fit them to
 cap or swaption prices.
 
-**Performance.** Profiling drove three rounds of optimisation, and overturned the
+**Performance.** Profiling drove three rounds of optimisation and overturned the
 guess each time: the suspected bottleneck (bond price integration) mattered least,
 while a per-path `np.interp` call buried in the simulator, boolean-mask indexing
 forcing array copies, and a 3.2 GB history allocation that no consumer read
